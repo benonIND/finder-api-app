@@ -1,5 +1,4 @@
 import banner, web_scraper, api_scanner
-from api_finder import banner, web_scraper, api_scanner
 import time
 
 def main_menu():
