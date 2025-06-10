@@ -39,9 +39,9 @@ class APIScanner:
         self.last_request_time = time.time()
         try:
             response = self.session.head(url, timeout=5, allow_redirects=True)
-            return response.status_code < 400
-        except:
-            return False
+            return (url, response.status_code < 400)
+        except Exception as e:
+            return (url, False)
     
     def find_api_endpoints(self, domain, max_results=15):
         if not domain.startswith(('http://', 'https://')):
@@ -55,50 +55,55 @@ class APIScanner:
             print("📋 Menggunakan pattern dari list.txt\n")
             
             # Scan halaman utama
-            main_page = self.scan_with_progress(domain, "Halaman Utama")
-            all_links = self.extract_links(main_page, base_url)
+            print("🌐 Scanning halaman utama...")
+            main_page = self.session.get(domain, timeout=10).text
+            main_page_apis = self.deep_scan(main_page, base_url)
             
             # Scan link terkait
-            api_candidates = set()
+            print("\n🔗 Mengumpulkan link terkait...")
+            all_links = self.extract_links(main_page, base_url)
+            link_apis = set()
+            
+            # Batasi jumlah thread untuk menghindari blocking
             with ThreadPoolExecutor(max_workers=3) as executor:
                 futures = []
-                for i, link in enumerate(list(all_links)[:10], 1):
-                    futures.append(executor.submit(
-                        self.scan_with_progress, 
-                        link, 
-                        f"Link #{i}"
-                    ))
+                for link in list(all_links)[:10]:  # Batasi jumlah link yang discan
+                    futures.append(executor.submit(self.scan_page, link))
                 
-                for future in as_completed(futures):
-                    api_candidates.update(future.result())
+                for i, future in enumerate(as_completed(futures), 1):
+                    try:
+                        apis = future.result()
+                        link_apis.update(apis)
+                        print(f"\r📡 Progress: {i}/{len(futures)} link discan", end="")
+                    except:
+                        continue
+            
+            # Gabungkan semua hasil
+            all_apis = main_page_apis.union(link_apis)
             
             # Verifikasi endpoint
-            print("\n🔎 Memverifikasi endpoint API:")
+            print("\n\n🔎 Memverifikasi endpoint API:")
             verified_apis = []
-            for i, api in enumerate(api_candidates, 1):
-                if len(verified_apis) >= max_results:
-                    break
-                
-                print(f"\r⏳ Memeriksa {i}/{len(api_candidates)}: {api[:60]}...", end="")
-                if self.make_request(api):
-                    verified_apis.append(api)
-                    print(f"\r✅ Found: {api}")
-                else:
-                    print(f"\r❌ Not Found: {api}")
             
-            return verified_apis or ["Tidak ditemukan API endpoint yang valid"]
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                futures = [executor.submit(self.make_request, api) for api in all_apis]
+                for i, future in enumerate(as_completed(futures), 1):
+                    url, is_valid = future.result()
+                    status = "✅ Found" if is_valid else "❌ Not Found"
+                    print(f"{status}: {url}")
+                    if is_valid:
+                        verified_apis.append(url)
+                    if len(verified_apis) >= max_results:
+                        break
+            
+            return verified_apis[:max_results] if verified_apis else ["Tidak ditemukan API endpoint yang valid"]
             
         except Exception as e:
             return [f"Error: {str(e)}"]
     
-    def scan_with_progress(self, url, label):
+    def scan_page(self, url):
         try:
-            for i in range(10):  # Animasi loading
-                self.animate_loading(i)
-                time.sleep(0.1)
-            
-            print(f"\r🌐 Scanning {label}: {url}")
-            response = self.session.get(url, timeout=10)
+            response = self.session.get(url, timeout=8)
             return self.deep_scan(response.text, url)
         except:
             return set()
