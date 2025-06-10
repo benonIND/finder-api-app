@@ -32,26 +32,32 @@ def main_menu():
         
     elif choice == '2':
         domain_input = input("Masukkan URL website atau domain: ")
-        print("\n" + "="*50)
-        print("Memulai pemindaian API... Ini mungkin membutuhkan waktu beberapa detik")
+        print("\n" + "="*60)
+        print("🚀 Memulai Advanced API Scanning")
+        print(f"🔍 Target: {domain_input}")
+        print("📋 Menggunakan pattern dari list.txt")
+        print("⏳ Harap tunggu, proses mungkin memakan waktu 15-30 detik...")
     
         try:
             results = api_scanner.find_api_endpoints(domain_input)
-            print("\nHasil Pemindaian API:")
+        
+            print("\n✅ Hasil Pemindaian API:")
             if len(results) == 1 and results[0].startswith(("Tidak ditemukan", "Error")):
                 print(results[0])
             else:
+                print(f"📊 Total ditemukan: {len(results)} endpoint")
                 for i, api in enumerate(results, 1):
-                     print(f"{i}. {api}")
+                    print(f"{i}. {api}")
         
-            print("\nTips:")
-            print("- Endpoint dengan domain utama biasanya lebih relevan")
-            print("- Coba endpoint dengan tools seperti Postman atau curl")
-            print("- Periksa dokumentasi API jika tersedia")
+            print("\n💡 Tips Analisis:")
+            print("- Endpoint dengan domain utama lebih mungkin valid")
+            print("- Cek endpoint dengan: curl -I <url>")
+            print("- Gunakan Postman untuk test endpoint")
+            print("- File list.txt bisa diedit untuk tambah pattern")
         except Exception as e:
-            print(f"Error: {str(e)}")
+            print(f"❌ Error: {str(e)}")
     
-        print("="*50 + "\n")
+        print("="*60 + "\n")
         
     elif choice == '3':
         print("Terima kasih telah menggunakan tool ini!")
