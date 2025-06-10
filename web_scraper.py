@@ -1,5 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
+from google_play_scraper import app, search
 
 def find_app_website(input_data):
     if 'play.google.com' in input_data:
@@ -9,37 +10,62 @@ def find_app_website(input_data):
 
 def extract_from_playstore(url):
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36'}
-        response = requests.get(url, headers=headers)
-        soup = BeautifulSoup(response.text, 'html.parser')
+        # Ekstrak package name dari URL
+        if 'id=' in url:
+            package_name = url.split('id=')[1].split('&')[0]
+        else:
+            package_name = url.split('store/apps/details?id=')[1].split('&')[0]
         
-        # Mencari link website developer
-        website_link = soup.find('a', {'class': 'hrTbp R8zArc', 'href': True})
-        if website_link:
-            return website_link['href']
+        # Gunakan google-play-scraper
+        result = app(
+            package_name,
+            lang='en',  # bahasa
+            country='us'  # negara
+        )
         
-        # Fallback: Mencari informasi developer
-        developer = soup.find('div', {'class': 'Vbfug auoIOc'})
-        if developer:
-            return f"Developer: {developer.text}"
-        
-        return "Website tidak ditemukan"
+        if 'developerWebsite' in result and result['developerWebsite']:
+            return result['developerWebsite']
+        elif 'developerEmail' in result and result['developerEmail']:
+            return f"Email Developer: {result['developerEmail']}"
+        else:
+            return "Informasi developer tidak ditemukan"
+            
     except Exception as e:
         return f"Error: {str(e)}"
 
 def search_by_app_name(app_name):
     try:
-        search_url = f"https://play.google.com/store/search?q={app_name}&c=apps"
-        headers = {'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36'}
-        response = requests.get(search_url, headers=headers)
-        soup = BeautifulSoup(response.text, 'html.parser')
+        # Gunakan fungsi search dari google-play-scraper
+        results = search(
+            app_name,
+            lang='en',
+            country='us',
+            n_hits=1
+        )
         
-        # Mengambil hasil pertama
-        first_result = soup.find('div', {'class': 'vU6FJ p63iDd'})
-        if first_result:
-            app_link = "https://play.google.com" + first_result.a['href']
-            return extract_from_playstore(app_link)
-        
-        return "Aplikasi tidak ditemukan"
+        if results:
+            package_name = results[0]['appId']
+            return extract_from_playstore(f"https://play.google.com/store/apps/details?id={package_name}")
+        else:
+            return "Aplikasi tidak ditemukan di Play Store"
+            
     except Exception as e:
         return f"Error: {str(e)}"
+
+# Alternatif fallback dengan mobile user-agent terbaru
+def fallback_scrape(url):
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 13; SM-S901B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36'
+        }
+        response = requests.get(url, headers=headers, timeout=10)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Coba temukan website developer
+        website = soup.find('a', {'href': True, 'itemprop': 'url'})
+        if website:
+            return website['href']
+        
+        return "Website developer tidak ditemukan (fallback)"
+    except:
+        return "Gagal melakukan scraping (fallback)"
