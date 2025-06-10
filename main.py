@@ -36,6 +36,7 @@ def main_menu():
     
         try:
             start_time = time.time()
+            domain_input = 'https://'+domain_input
             results = api_scanner.unified_scan(domain_input)
         
             print("\n" + "="*60)
