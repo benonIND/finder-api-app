@@ -6,6 +6,8 @@ import sys
 from urllib.parse import urlparse, urljoin
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from bs4 import BeautifulSoup
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 class UnifiedScanner:
     def __init__(self):
@@ -23,7 +25,7 @@ class UnifiedScanner:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             'Accept': '*/*'
         })
-        self.request_delay = 1  # 1 second delay between requests
+        self.request_delay = 3  # 1 second delay between requests
         self.last_request_time = 0
         self.scanning_active = True
 
@@ -72,7 +74,7 @@ class UnifiedScanner:
                 url, 
                 timeout=5,
                 allow_redirects=True,
-                verify=False
+                verify=True
             )
             
             if response.status_code < 400:
@@ -100,7 +102,7 @@ class UnifiedScanner:
                 full_url,
                 timeout=5,
                 allow_redirects=True,
-                verify=False
+                verify=True
             )
             
             if response.status_code < 400:
