@@ -1,0 +1,12 @@
+/api/v1/
+/api/v2/
+/graphql
+/rest/
+/json/
+/oauth/
+/auth/
+/users/
+/products/
+/account/
+/settings/
+/config/
