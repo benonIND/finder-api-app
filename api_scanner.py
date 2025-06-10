@@ -74,7 +74,7 @@ class UnifiedScanner:
                 url, 
                 timeout=5,
                 allow_redirects=True,
-                verify=True
+                verify=False
             )
             
             if response.status_code < 400:
@@ -102,7 +102,7 @@ class UnifiedScanner:
                 full_url,
                 timeout=5,
                 allow_redirects=True,
-                verify=True
+                verify=False
             )
             
             if response.status_code < 400:
