@@ -1,5 +1,6 @@
 import banner, web_scraper, api_scanner
 import time
+import os
 
 def main_menu():
     os.system("clear")
