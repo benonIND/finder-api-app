@@ -41,21 +41,20 @@ class UnifiedScanner:
         time_since_last = time.time() - self.last_request_time
         if time_since_last < self.request_delay:
             time.sleep(self.request_delay - time_since_last)
-        
+    
         self.last_request_time = time.time()
         try:
             response = self.session.head(
                 url, 
                 timeout=3, 
                 allow_redirects=True,
-                verify=True  # Nonaktifkan verifikasi SSL
+                verify=True  # Aktifkan verifikasi SSL
             )
             return (url, response.status_code < 400)
         except requests.exceptions.SSLError:
-            print(f"  [!] SSL Error pada {url}")
+            print(f"  [!] SSL Error pada {url} - Sertifikat tidak valid")
             return (url, False)
         except Exception as e:
-            print(f"  [!] Error pada {url}: {str(e)}")
             return (url, False)
 
     def get_base_domain(self, url):
