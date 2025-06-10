@@ -1,157 +1,183 @@
 import requests
 import re
-import json
-from bs4 import BeautifulSoup
+import os
 from urllib.parse import urlparse, urljoin
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from bs4 import BeautifulSoup
 
-def find_api_endpoints(domain, max_results=10):
-    if not domain.startswith(('http://', 'https://')):
-        domain = 'https://' + domain
-    
-    try:
-        session = requests.Session()
-        session.headers.update({
+class APIScanner:
+    def __init__(self):
+        self.common_patterns = self.load_common_patterns()
+        self.session = requests.Session()
+        self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         })
+    
+    def load_common_patterns(self):
+        patterns = []
+        # Pattern bawaan
+        patterns.extend([
+            r'/api/v\d+/',
+            r'/graphql',
+            r'/rest/v\d+/',
+            r'\.json',
+            r'/oauth2/'
+        ])
         
-        # Dapatkan konten utama
-        print("\nMemindai halaman utama...")
-        main_page = session.get(domain, timeout=10).text
+        # Load dari file list.txt jika ada
+        if os.path.exists('list.txt'):
+            with open('list.txt', 'r') as f:
+                custom_patterns = [line.strip() for line in f if line.strip()]
+                patterns.extend(custom_patterns)
         
-        # Dapatkan semua link dari halaman
-        print("Mengumpulkan link terkait...")
-        all_links = get_all_links(main_page, domain)
-        
-        # Pattern untuk mendeteksi API endpoints
-        api_patterns = {
-            'REST': [
-                r'(https?://[^"\'\s]+/api/v\d+/[^"\'\s]+)',
-                r'(https?://api\.[^"\'\s]+/[^"\'\s]*)',
-                r'(https?://[^"\'\s]+\.com/api/[^"\'\s]+)',
-                r'(https?://[^"\'\s]+\.(io|net|org)/api/[^"\'\s]+)'
-            ],
-            'GraphQL': [
-                r'(https?://[^"\'\s]+/graphql[^"\'\s]*)',
-                r'(https?://[^"\'\s]+/gql[^"\'\s]*)'
-            ],
-            'JSON': [
-                r'(https?://[^"\'\s]+\.json[^"\'\s]*)',
-                r'(https?://[^"\'\s]+\.php\?[^"\'\s]*format=json[^"\'\s]*)'
-            ],
-            'Misc': [
-                r'(https?://[^"\'\s]+\.php\?[^"\'\s]*api[^"\'\s]*)',
-                r'(https?://[^"\'\s]+/rest/[^"\'\s]+)',
-                r'(https?://[^"\'\s]+/v\d+/[^"\'\s]+)'
-            ]
-        }
+        return list(set(patterns))  # Hapus duplikat
 
-        print("Memindai endpoint API...")
-        api_endpoints = set()
+    def find_api_endpoints(self, domain, max_results=15):
+        if not domain.startswith(('http://', 'https://')):
+            domain = 'https://' + domain
         
-        # Scan halaman utama
-        api_endpoints.update(scan_text(main_page, api_patterns))
-        
-        # Scan link terkait (maksimal 5 link tambahan untuk efisiensi)
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            futures = []
-            for link in list(all_links)[:5]:
-                futures.append(executor.submit(scan_page, session, link, api_patterns))
+        try:
+            print("\nMemuat pattern dari list.txt...")
+            parsed_domain = urlparse(domain)
+            base_url = f"{parsed_domain.scheme}://{parsed_domain.netloc}"
             
-            for future in as_completed(futures):
-                try:
-                    api_endpoints.update(future.result())
-                except:
-                    continue
-        
-        # Filter dan urutkan hasil
-        filtered_apis = filter_and_sort_apis(api_endpoints, domain)
-        
-        return filtered_apis[:max_results] if filtered_apis else ["Tidak ditemukan API endpoint"]
-        
-    except Exception as e:
-        return [f"Error: {str(e)}"]
-
-def get_all_links(text, base_url):
-    soup = BeautifulSoup(text, 'html.parser')
-    links = set()
-    
-    for tag in soup.find_all(['a', 'link', 'script', 'img'], href=True):
-        url = urljoin(base_url, tag['href'])
-        links.add(url)
-    
-    for tag in soup.find_all(['script', 'img'], src=True):
-        url = urljoin(base_url, tag['src'])
-        links.add(url)
-    
-    return links
-
-def scan_page(session, url, patterns):
-    try:
-        response = session.get(url, timeout=5)
-        return scan_text(response.text, patterns)
-    except:
-        return set()
-
-def scan_text(text, patterns):
-    found = set()
-    
-    # Scan teks langsung
-    for api_type in patterns:
-        for pattern in patterns[api_type]:
-            matches = re.findall(pattern, text)
-            found.update(matches)
-    
-    # Scan di JavaScript
-    js_blocks = re.findall(r'<script[^>]*>(.*?)</script>', text, re.DOTALL)
-    for js in js_blocks:
-        for api_type in patterns:
-            for pattern in patterns[api_type]:
-                matches = re.findall(pattern, js)
-                found.update(matches)
-    
-    # Scan di komentar HTML
-    comments = re.findall(r'<!--(.*?)-->', text, re.DOTALL)
-    for comment in comments:
-        for api_type in patterns:
-            for pattern in patterns[api_type]:
-                matches = re.findall(pattern, comment)
-                found.update(matches)
-    
-    return found
-
-def filter_and_sort_apis(api_endpoints, domain):
-    parsed_domain = urlparse(domain)
-    filtered = []
-    
-    for api in api_endpoints:
-        # Filter URL yang valid
-        if not api.startswith(('http://', 'https://')):
-            continue
-        
-        # Filter parameter tracking
-        if any(param in api for param in ['utm_', 'sessionid', 'token']):
-            continue
-        
-        # Prioritaskan API dari domain yang sama
-        priority = 0
-        if parsed_domain.netloc in api:
-            priority = 2
-        elif 'api' in api:
-            priority = 1
+            print("Memindai struktur website...")
+            main_page = self.session.get(domain, timeout=15).text
+            all_links = self.extract_links(main_page, base_url)
             
-        filtered.append((priority, api))
-    
-    # Urutkan berdasarkan priority dan panjang URL
-    filtered.sort(key=lambda x: (-x[0], len(x[1])))
-    
-    # Hapus duplikat
-    seen = set()
-    unique_apis = []
-    for priority, api in filtered:
-        clean_api = api.split('?')[0].split('#')[0]
-        if clean_api not in seen:
-            seen.add(clean_api)
-            unique_apis.append(api)
-    
-    return unique_apis
+            print("Mengidentifikasi endpoint API...")
+            api_candidates = set()
+            
+            # Scan halaman utama
+            api_candidates.update(self.deep_scan(main_page, base_url))
+            
+            # Scan link terkait (parallel)
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                futures = []
+                for link in list(all_links)[:10]:  # Batasi untuk efisiensi
+                    futures.append(executor.submit(self.scan_page, link))
+                
+                for future in as_completed(futures):
+                    try:
+                        api_candidates.update(future.result())
+                    except:
+                        continue
+            
+            # Proses hasil
+            scored_apis = self.score_and_filter(api_candidates, base_url)
+            return scored_apis[:max_results] if scored_apis else ["Tidak ditemukan API endpoint"]
+            
+        except Exception as e:
+            return [f"Error: {str(e)}"]
+
+    def extract_links(self, html, base_url):
+        soup = BeautifulSoup(html, 'html.parser')
+        links = set()
+        
+        for tag in soup.find_all(['a', 'link', 'script', 'img', 'form'], href=True):
+            url = urljoin(base_url, tag['href'])
+            links.add(url)
+        
+        for tag in soup.find_all(['script', 'img', 'iframe'], src=True):
+            url = urljoin(base_url, tag['src'])
+            links.add(url)
+        
+        for tag in soup.find_all('form', action=True):
+            url = urljoin(base_url, tag['action'])
+            links.add(url)
+        
+        return links
+
+    def scan_page(self, url):
+        try:
+            response = self.session.get(url, timeout=8)
+            return self.deep_scan(response.text, url)
+        except:
+            return set()
+
+    def deep_scan(self, text, base_url):
+        found = set()
+        
+        # Scan berdasarkan pattern
+        for pattern in self.common_patterns:
+            matches = re.finditer(pattern, text)
+            for match in matches:
+                full_url = self.build_full_url(match.group(), base_url)
+                if full_url:
+                    found.add(full_url)
+        
+        # Scan JavaScript dan AJAX calls
+        js_patterns = [
+            r'fetch\(["\'](.*?)["\']',
+            r'axios\.get\(["\'](.*?)["\']',
+            r'\.ajax\(.*?url:\s?["\'](.*?)["\']',
+            r'window\.location\.href\s?=\s?["\'](.*?)["\']'
+        ]
+        
+        for pattern in js_patterns:
+            matches = re.finditer(pattern, text)
+            for match in matches:
+                full_url = self.build_full_url(match.group(1), base_url)
+                if full_url and any(p in full_url for p in self.common_patterns):
+                    found.add(full_url)
+        
+        return found
+
+    def build_full_url(self, path, base_url):
+        if not path or path.startswith('javascript:'):
+            return None
+        
+        if path.startswith(('http://', 'https://')):
+            return path
+        
+        if path.startswith('//'):
+            return f"https:{path}" if base_url.startswith('https') else f"http:{path}"
+        
+        if path.startswith('/'):
+            parsed = urlparse(base_url)
+            return f"{parsed.scheme}://{parsed.netloc}{path}"
+        
+        return f"{base_url}/{path}"
+
+    def score_and_filter(self, api_candidates, base_url):
+        scored = []
+        
+        for api in api_candidates:
+            score = 0
+            
+            # Scoring criteria
+            if urlparse(base_url).netloc in api:
+                score += 3
+            
+            if any(word in api for word in ['api', 'rest', 'graphql', 'json']):
+                score += 2
+            
+            if any(p in api for p in self.common_patterns):
+                score += 2
+            
+            if api.endswith(('.json', '.php', '.asp', '.aspx')):
+                score += 1
+            
+            if '?' in api:  # Kurangi score untuk URL dengan parameter
+                score -= 1
+            
+            if score > 0:
+                scored.append((score, api))
+        
+        # Urutkan berdasarkan score
+        scored.sort(reverse=True, key=lambda x: x[0])
+        
+        # Hapus duplikat dan ambil URL saja
+        seen = set()
+        final_apis = []
+        for score, api in scored:
+            clean_api = api.split('?')[0].split('#')[0]
+            if clean_api not in seen:
+                seen.add(clean_api)
+                final_apis.append(api)
+        
+        return final_apis
+
+def find_api_endpoints(domain, max_results=15):
+    scanner = APIScanner()
+    return scanner.find_api_endpoints(domain, max_results)
