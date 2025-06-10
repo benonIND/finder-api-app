@@ -7,6 +7,7 @@ from urllib.parse import urlparse, urljoin
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from bs4 import BeautifulSoup
 import urllib3
+from urllib3.exceptions import NewConnectionError, MaxRetryError
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 class UnifiedScanner:
@@ -68,7 +69,7 @@ class UnifiedScanner:
             # Cek DNS resolution terlebih dahulu
             socket.gethostbyname(f"{subdomain}.{base_domain}")
         except socket.gaierror:
-            self.animate_loading(f"DNS tidak ditemukan: {url}", "error")
+            self.animate_loading(f"DNS Not Found : {url}", "error")
             return None
         except Exception as e:
             self.animate_loading(f"Error DNS: {url} ({str(e)})", "error")
