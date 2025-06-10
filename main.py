@@ -31,7 +31,7 @@ def main_menu():
         print("="*50 + "\n")
         
     elif choice == '2':
-        domain_input = input("Masukkan URL/domain utama: ")
+        domain_input = input("Masukkan domain/URL target: ").strip()
         print("\n" + "="*60)
     
         try:
@@ -43,17 +43,17 @@ def main_menu():
             print("="*60)
         
             if not results:
-                print("Tidak ditemukan API endpoint")
+                print("❌ Tidak ditemukan API endpoint")
             else:
                 total_apis = sum(len(apis) for apis in results.values())
-                print(f"✨ TOTAL DITEMUKAN: {total_apis} API endpoint pada {len(results)} domain\n")
+                print(f"✅ Total ditemukan: {total_apis} API endpoint pada {len(results)} domain\n")
             
-                for domain, apis in results.items():
-                    print(f"\n🔗 Domain: {domain}")
+                for url, apis in results.items():
+                    print(f"\n🌐 Domain: {url}")
                     for i, api in enumerate(apis, 1):
                         print(f"  {i}. {api}")
         
-            print(f"\n⏱️ Waktu eksekusi: {time.time()-start_time:.2f} detik")
+            print(f"\n⏱ Waktu eksekusi: {time.time()-start_time:.2f} detik")
             print("="*60 + "\n")
         
         except Exception as e:
