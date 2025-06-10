@@ -1,6 +1,7 @@
 import requests
 import re
 import json
+from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urljoin
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
