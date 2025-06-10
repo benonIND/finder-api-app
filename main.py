@@ -36,21 +36,25 @@ def main_menu():
     
         try:
             start_time = time.time()
+            print("🛠️ Memulai proses scanning...")
             results = api_scanner.find_api_endpoints(domain_input)
         
             print("\n" + "="*60)
-            print("🎯 Hasil Final Pemindaian API:")
-            if len(results) == 1 and results[0].startswith(("Tidak ditemukan", "Error")):
-                print(results[0])
+            print("🎯 HASIL PEMINDAIAN API")
+            print("="*60)
+        
+            if not results or (len(results) == 1 and results[0].startswith(("Tidak ditemukan", "Error"))):
+                print(results[0] if results else "Tidak ditemukan API endpoint")
             else:
-                print(f"✨ Total ditemukan: {len(results)} endpoint valid")
+                print(f"✨ TOTAL DITEMUKAN: {len(results)} endpoint valid\n")
                 for i, api in enumerate(results, 1):
                     print(f"{i}. {api}")
         
             print(f"\n⏱️ Waktu eksekusi: {time.time() - start_time:.2f} detik")
             print("="*60 + "\n")
+        
         except Exception as e:
-            print(f"\n❌ Error: {str(e)}")
+            print(f"\n❌ ERROR: {str(e)}")
             print("="*60 + "\n")
         
     elif choice == '3':
