@@ -1,6 +1,7 @@
 import requests
 import re
 import os
+import time
 from urllib.parse import urlparse, urljoin
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from bs4 import BeautifulSoup
@@ -12,171 +13,126 @@ class APIScanner:
         self.session.headers.update({
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         })
+        self.request_delay = 1  # Jeda 1 detik antar request
+        self.last_request_time = 0
     
     def load_common_patterns(self):
         patterns = []
-        # Pattern bawaan
-        patterns.extend([
-            r'/api/v\d+/',
-            r'/graphql',
-            r'/rest/v\d+/',
-            r'\.json',
-            r'/oauth2/'
-        ])
-        
-        # Load dari file list.txt jika ada
         if os.path.exists('list.txt'):
             with open('list.txt', 'r') as f:
-                custom_patterns = [line.strip() for line in f if line.strip()]
-                patterns.extend(custom_patterns)
+                patterns.extend([line.strip() for line in f if line.strip()])
+        return patterns or [
+            '/api/v1/', '/api/v2/', '/graphql', '/rest/', 
+            '/json/', '/oauth/', '/auth/', '/users/'
+        ]
+    
+    def animate_loading(self, frame):
+        animation = ["⡿", "⣟", "⣯", "⣷", "⣾", "⣽", "⣻", "⢿"]
+        print(f"\r{animation[frame % len(animation)]} Scanning...", end="", flush=True)
+    
+    def make_request(self, url):
+        # Jeda antara request
+        time_since_last = time.time() - self.last_request_time
+        if time_since_last < self.request_delay:
+            time.sleep(self.request_delay - time_since_last)
         
-        return list(set(patterns))  # Hapus duplikat
-
+        self.last_request_time = time.time()
+        try:
+            response = self.session.head(url, timeout=5, allow_redirects=True)
+            return response.status_code < 400
+        except:
+            return False
+    
     def find_api_endpoints(self, domain, max_results=15):
         if not domain.startswith(('http://', 'https://')):
             domain = 'https://' + domain
         
         try:
-            print("\nMemuat pattern dari list.txt...")
             parsed_domain = urlparse(domain)
             base_url = f"{parsed_domain.scheme}://{parsed_domain.netloc}"
             
-            print("Memindai struktur website...")
-            main_page = self.session.get(domain, timeout=15).text
-            all_links = self.extract_links(main_page, base_url)
-            
-            print("Mengidentifikasi endpoint API...")
-            api_candidates = set()
+            print(f"\n🔍 Memulai scanning pada: {base_url}")
+            print("📋 Menggunakan pattern dari list.txt\n")
             
             # Scan halaman utama
-            api_candidates.update(self.deep_scan(main_page, base_url))
+            main_page = self.scan_with_progress(domain, "Halaman Utama")
+            all_links = self.extract_links(main_page, base_url)
             
-            # Scan link terkait (parallel)
-            with ThreadPoolExecutor(max_workers=5) as executor:
+            # Scan link terkait
+            api_candidates = set()
+            with ThreadPoolExecutor(max_workers=3) as executor:
                 futures = []
-                for link in list(all_links)[:10]:  # Batasi untuk efisiensi
-                    futures.append(executor.submit(self.scan_page, link))
+                for i, link in enumerate(list(all_links)[:10], 1):
+                    futures.append(executor.submit(
+                        self.scan_with_progress, 
+                        link, 
+                        f"Link #{i}"
+                    ))
                 
                 for future in as_completed(futures):
-                    try:
-                        api_candidates.update(future.result())
-                    except:
-                        continue
+                    api_candidates.update(future.result())
             
-            # Proses hasil
-            scored_apis = self.score_and_filter(api_candidates, base_url)
-            return scored_apis[:max_results] if scored_apis else ["Tidak ditemukan API endpoint"]
+            # Verifikasi endpoint
+            print("\n🔎 Memverifikasi endpoint API:")
+            verified_apis = []
+            for i, api in enumerate(api_candidates, 1):
+                if len(verified_apis) >= max_results:
+                    break
+                
+                print(f"\r⏳ Memeriksa {i}/{len(api_candidates)}: {api[:60]}...", end="")
+                if self.make_request(api):
+                    verified_apis.append(api)
+                    print(f"\r✅ Found: {api}")
+                else:
+                    print(f"\r❌ Not Found: {api}")
+            
+            return verified_apis or ["Tidak ditemukan API endpoint yang valid"]
             
         except Exception as e:
             return [f"Error: {str(e)}"]
-
+    
+    def scan_with_progress(self, url, label):
+        try:
+            for i in range(10):  # Animasi loading
+                self.animate_loading(i)
+                time.sleep(0.1)
+            
+            print(f"\r🌐 Scanning {label}: {url}")
+            response = self.session.get(url, timeout=10)
+            return self.deep_scan(response.text, url)
+        except:
+            return set()
+    
     def extract_links(self, html, base_url):
         soup = BeautifulSoup(html, 'html.parser')
         links = set()
         
         for tag in soup.find_all(['a', 'link', 'script', 'img', 'form'], href=True):
-            url = urljoin(base_url, tag['href'])
-            links.add(url)
+            links.add(urljoin(base_url, tag['href']))
         
         for tag in soup.find_all(['script', 'img', 'iframe'], src=True):
-            url = urljoin(base_url, tag['src'])
-            links.add(url)
-        
-        for tag in soup.find_all('form', action=True):
-            url = urljoin(base_url, tag['action'])
-            links.add(url)
+            links.add(urljoin(base_url, tag['src']))
         
         return links
-
-    def scan_page(self, url):
-        try:
-            response = self.session.get(url, timeout=8)
-            return self.deep_scan(response.text, url)
-        except:
-            return set()
-
+    
     def deep_scan(self, text, base_url):
         found = set()
-        
-        # Scan berdasarkan pattern
         for pattern in self.common_patterns:
-            matches = re.finditer(pattern, text)
+            matches = re.finditer(re.escape(pattern), text)
             for match in matches:
                 full_url = self.build_full_url(match.group(), base_url)
                 if full_url:
                     found.add(full_url)
-        
-        # Scan JavaScript dan AJAX calls
-        js_patterns = [
-            r'fetch\(["\'](.*?)["\']',
-            r'axios\.get\(["\'](.*?)["\']',
-            r'\.ajax\(.*?url:\s?["\'](.*?)["\']',
-            r'window\.location\.href\s?=\s?["\'](.*?)["\']'
-        ]
-        
-        for pattern in js_patterns:
-            matches = re.finditer(pattern, text)
-            for match in matches:
-                full_url = self.build_full_url(match.group(1), base_url)
-                if full_url and any(p in full_url for p in self.common_patterns):
-                    found.add(full_url)
-        
         return found
-
+    
     def build_full_url(self, path, base_url):
-        if not path or path.startswith('javascript:'):
+        if not path or path.startswith(('javascript:', 'mailto:', 'tel:')):
             return None
         
         if path.startswith(('http://', 'https://')):
             return path
         
-        if path.startswith('//'):
-            return f"https:{path}" if base_url.startswith('https') else f"http:{path}"
-        
-        if path.startswith('/'):
-            parsed = urlparse(base_url)
-            return f"{parsed.scheme}://{parsed.netloc}{path}"
-        
-        return f"{base_url}/{path}"
-
-    def score_and_filter(self, api_candidates, base_url):
-        scored = []
-        
-        for api in api_candidates:
-            score = 0
-            
-            # Scoring criteria
-            if urlparse(base_url).netloc in api:
-                score += 3
-            
-            if any(word in api for word in ['api', 'rest', 'graphql', 'json']):
-                score += 2
-            
-            if any(p in api for p in self.common_patterns):
-                score += 2
-            
-            if api.endswith(('.json', '.php', '.asp', '.aspx')):
-                score += 1
-            
-            if '?' in api:  # Kurangi score untuk URL dengan parameter
-                score -= 1
-            
-            if score > 0:
-                scored.append((score, api))
-        
-        # Urutkan berdasarkan score
-        scored.sort(reverse=True, key=lambda x: x[0])
-        
-        # Hapus duplikat dan ambil URL saja
-        seen = set()
-        final_apis = []
-        for score, api in scored:
-            clean_api = api.split('?')[0].split('#')[0]
-            if clean_api not in seen:
-                seen.add(clean_api)
-                final_apis.append(api)
-        
-        return final_apis
+        return urljoin(base_url, path)
 
 def find_api_endpoints(domain, max_results=15):
     scanner = APIScanner()
