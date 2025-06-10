@@ -219,7 +219,7 @@ class UnifiedScanner:
             return {}
         
         except Exception as e:
-            print(f"\n❌ Error: {str(e)}")
+            print(f"\n❌ Error: {domain}")
             return {}
 
 def unified_scan(domain):
