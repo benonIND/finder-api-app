@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from bs4 import BeautifulSoup
 
 # Nonaktifkan peringatan SSL untuk testing
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 class UnifiedScanner:
     def __init__(self):
@@ -48,7 +48,7 @@ class UnifiedScanner:
                 url, 
                 timeout=3, 
                 allow_redirects=True,
-                verify=False  # Nonaktifkan verifikasi SSL
+                verify=True  # Nonaktifkan verifikasi SSL
             )
             return (url, response.status_code < 400)
         except requests.exceptions.SSLError:
