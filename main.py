@@ -31,30 +31,33 @@ def main_menu():
         print("="*50 + "\n")
         
     elif choice == '2':
-        domain_input = input("Masukkan URL website atau domain: ")
+        domain_input = input("Masukkan URL/domain utama: ")
         print("\n" + "="*60)
     
         try:
             start_time = time.time()
-            print("🛠️ Memulai proses scanning...")
-            results = api_scanner.find_api_endpoints(domain_input)
+            results = api_scanner.unified_scan(domain_input)
         
             print("\n" + "="*60)
-            print("🎯 HASIL PEMINDAIAN API")
+            print("🎯 HASIL UNIFIED SCAN")
             print("="*60)
         
-            if not results or (len(results) == 1 and results[0].startswith(("Tidak ditemukan", "Error"))):
-                print(results[0] if results else "Tidak ditemukan API endpoint")
+            if not results:
+                print("Tidak ditemukan API endpoint")
             else:
-                print(f"✨ TOTAL DITEMUKAN: {len(results)} endpoint valid\n")
-                for i, api in enumerate(results, 1):
-                    print(f"{i}. {api}")
+                total_apis = sum(len(apis) for apis in results.values())
+                print(f"✨ TOTAL DITEMUKAN: {total_apis} API endpoint pada {len(results)} domain\n")
+            
+                for domain, apis in results.items():
+                    print(f"\n🔗 Domain: {domain}")
+                    for i, api in enumerate(apis, 1):
+                        print(f"  {i}. {api}")
         
-            print(f"\n⏱️ Waktu eksekusi: {time.time() - start_time:.2f} detik")
+            print(f"\n⏱️ Waktu eksekusi: {time.time()-start_time:.2f} detik")
             print("="*60 + "\n")
         
         except Exception as e:
-            print(f"\n❌ ERROR: {str(e)}")
+            print(f"\n❌ Error: {str(e)}")
             print("="*60 + "\n")
         
     elif choice == '3':
