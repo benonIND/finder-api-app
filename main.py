@@ -1,4 +1,4 @@
-from api_finder import banner, web_scraper, api_scanner
+import banner, web_scraper, api_scanner
 
 def main_menu():
     banner.show_banner()
