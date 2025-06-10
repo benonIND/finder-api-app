@@ -2,32 +2,30 @@ import requests
 import re
 import os
 import time
-import urllib3
+import sys
 from urllib.parse import urlparse, urljoin
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from bs4 import BeautifulSoup
 
-# Nonaktifkan peringatan SSL untuk testing
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
 class UnifiedScanner:
     def __init__(self):
+        # Load patterns
         self.api_patterns = self.load_patterns('list_api.txt') or [
-            '/api/v1', '/api/v2', '/graphql', '/rest', 
-            '/json', '/auth', '/users', '/admin'
+            '/api', '/graphql', '/rest', '/v1', '/v2', '/json'
         ]
         self.subdomain_patterns = self.load_patterns('list_subdomain.txt') or [
-            'www', 'api', 'admin', 'test', 'dev'
+            'www', 'api', 'admin', 'test', 'dev', 'staging'
         ]
+        
+        # Session configuration
         self.session = requests.Session()
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': '*/*'
         })
-        self.request_delay = 0.5
+        self.request_delay = 1  # 1 second delay between requests
         self.last_request_time = 0
-        
-        # SSL Configuration
-        self.session.verify = False  # Nonaktifkan verifikasi untuk testing
+        self.scanning_active = True
 
     def load_patterns(self, filename):
         try:
@@ -37,127 +35,190 @@ class UnifiedScanner:
             print(f"[!] File {filename} tidak ditemukan, menggunakan pattern default")
             return None
 
-    def make_request(self, url):
+    def animate_loading(self, text, status=None):
+        """Animasi loading dengan status"""
+        frames = ["⢿", "⣻", "⣽", "⣾", "⣷", "⣯", "⣟", "⡿"]
+        frame = frames[int(time.time() * 4) % len(frames)]
+        
+        if status == "found":
+            sys.stdout.write(f"\r✅ Found: {text}\n")
+        elif status == "error":
+            sys.stdout.write(f"\r❌ Error: {text}\n")
+        elif status == "not_found":
+            sys.stdout.write(f"\r❌ Not Found: {text}\n")
+        else:
+            sys.stdout.write(f"\r{frame} Scanning: {text[:60]}...{' '*(65-len(text[:60]))}")
+        
+        sys.stdout.flush()
+
+    def check_request_delay(self):
+        """Enforce delay between requests"""
         time_since_last = time.time() - self.last_request_time
         if time_since_last < self.request_delay:
             time.sleep(self.request_delay - time_since_last)
-    
         self.last_request_time = time.time()
+
+    def scan_subdomain(self, base_domain, subdomain):
+        """Scan single subdomain"""
+        if not self.scanning_active:
+            return None
+            
+        url = f"https://{subdomain}.{base_domain}"
+        self.animate_loading(url)
+        
         try:
+            self.check_request_delay()
             response = self.session.head(
                 url, 
-                timeout=3, 
+                timeout=5,
                 allow_redirects=True,
-                verify=True  # Aktifkan verifikasi SSL
+                verify=False
             )
-            return (url, response.status_code < 400)
-        except requests.exceptions.SSLError:
-            print(f"  [!] SSL Error pada {url} - Sertifikat tidak valid")
-            return (url, False)
+            
+            if response.status_code < 400:
+                self.animate_loading(url, "found")
+                return url
+            else:
+                self.animate_loading(url, "not_found")
+                return None
+                
         except Exception as e:
-            return (url, False)
+            self.animate_loading(f"{url} ({str(e)})", "error")
+            return None
 
-    def get_base_domain(self, url):
-        """Ekstrak domain utama dari URL"""
-        if not url.startswith(('http://', 'https://')):
-            url = 'https://' + url
-        parsed = urlparse(url)
-        netloc = parsed.netloc
-        if ':' in netloc:  # Hapus port jika ada
-            netloc = netloc.split(':')[0]
-        return netloc
+    def scan_api_endpoint(self, base_url, api_path):
+        """Scan single API endpoint"""
+        if not self.scanning_active:
+            return None
+            
+        full_url = urljoin(base_url, api_path)
+        self.animate_loading(full_url)
+        
+        try:
+            self.check_request_delay()
+            response = self.session.head(
+                full_url,
+                timeout=5,
+                allow_redirects=True,
+                verify=False
+            )
+            
+            if response.status_code < 400:
+                self.animate_loading(full_url, "found")
+                return full_url
+            else:
+                self.animate_loading(full_url, "not_found")
+                return None
+                
+        except Exception as e:
+            self.animate_loading(f"{full_url} ({str(e)})", "error")
+            return None
 
     def find_subdomains(self, base_domain):
-        """Temukan subdomain yang aktif"""
-        found = []
-        print(f"\n[+] Scanning subdomain untuk {base_domain}...")
+        """Find all active subdomains"""
+        print(f"\n🔍 Scanning subdomains untuk {base_domain}")
+        found_subdomains = []
         
         with ThreadPoolExecutor(max_workers=10) as executor:
             futures = []
-            for sub in set(self.subdomain_patterns[:50]):  # Batasi untuk testing
-                url = f"https://{sub}.{base_domain}"
-                futures.append(executor.submit(self.make_request, url))
+            for subdomain in set(self.subdomain_patterns[:100]):  # Limit to 100 for demo
+                futures.append(executor.submit(self.scan_subdomain, base_domain, subdomain))
             
             for future in as_completed(futures):
-                url, is_active = future.result()
-                if is_active:
-                    print(f"  [+] Found: {url}")
-                    found.append(url)
-                else:
-                    print(f"  [-] Not found: {url}", end='\r')
+                result = future.result()
+                if result:
+                    found_subdomains.append(result)
         
-        return found
+        return found_subdomains
 
-    def scan_apis(self, url):
-        """Scan API endpoints pada sebuah URL"""
-        found = set()
+    def scan_apis_on_url(self, url):
+        """Scan APIs on specific URL"""
+        print(f"\n🔎 Scanning APIs di {url}")
+        found_apis = []
+        
         try:
-            print(f"\n[+] Scanning APIs di: {url}")
-            response = self.session.get(url, timeout=10, verify=False)
-            text = response.text
+            # Get page content
+            self.check_request_delay()
+            response = self.session.get(url, timeout=10)
+            soup = BeautifulSoup(response.text, 'html.parser')
             
-            # Cari di HTML
-            soup = BeautifulSoup(text, 'html.parser')
+            # Find potential API endpoints
+            potential_apis = set()
+            
+            # Check HTML tags
             for tag in soup.find_all(['a', 'link', 'script'], href=True):
-                self.check_pattern(found, tag['href'], url)
+                href = tag['href']
+                if any(api in href for api in self.api_patterns):
+                    potential_apis.add(href)
             
             for tag in soup.find_all(['script', 'img'], src=True):
-                self.check_pattern(found, tag['src'], url)
+                src = tag['src']
+                if any(api in src for api in self.api_patterns):
+                    potential_apis.add(src)
             
-            # Cari di JavaScript
-            js_blocks = soup.find_all('script', {'type': 'text/javascript'})
-            for js in js_blocks:
-                if js.string:
-                    for match in re.finditer(r'https?://[^\s"\']+', js.string):
-                        self.check_pattern(found, match.group(), url)
+            # Check JavaScript content
+            scripts = soup.find_all('script', type='text/javascript')
+            for script in scripts:
+                if script.string:
+                    matches = re.finditer(r'https?://[^\s"\']+', script.string)
+                    for match in matches:
+                        if any(api in match.group() for api in self.api_patterns):
+                            potential_apis.add(match.group())
             
-            return list(found)
+            # Verify found APIs
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                futures = []
+                for api in potential_apis:
+                    futures.append(executor.submit(self.scan_api_endpoint, url, api))
+                
+                for future in as_completed(futures):
+                    result = future.result()
+                    if result:
+                        found_apis.append(result)
+        
         except Exception as e:
-            print(f"  [!] Error scanning {url}: {str(e)}")
-            return []
+            print(f"\n❌ Error scanning {url}: {str(e)}")
+        
+        return found_apis
 
-    def check_pattern(self, found_set, path, base_url):
-        """Cek apakah path cocok dengan pola API"""
-        full_url = self.build_full_url(path, base_url)
-        if full_url:
-            for pattern in self.api_patterns:
-                if re.search(re.escape(pattern), full_url):
-                    found_set.add(full_url)
-
-    def build_full_url(self, path, base_url):
-        """Bangun URL lengkap dari path relatif/absolut"""
-        if not path or path.startswith(('javascript:', 'mailto:', 'tel:')):
-            return None
+    def unified_scan(self, domain):
+        """Main scanning function"""
+        self.scanning_active = True
         
-        if path.startswith(('http://', 'https://')):
-            return path
+        # Extract base domain
+        if not domain.startswith(('http://', 'https://')):
+            domain = 'https://' + domain
         
-        return urljoin(base_url, path)
-
-    def unified_scan(self, domain_input):
-        """Fungsi utama untuk unified scanning"""
-        base_domain = self.get_base_domain(domain_input)
-        all_targets = [f"https://{base_domain}"]
+        parsed = urlparse(domain)
+        base_domain = parsed.netloc.split(':')[0]  # Remove port if exists
         
-        # Temukan subdomain
-        subdomains = self.find_subdomains(base_domain)
-        all_targets.extend(subdomains)
+        print(f"\n{'='*60}")
+        print(f"🚀 MEMULAI UNIFIED SCAN PADA: {base_domain}")
+        print(f"{'='*60}\n")
         
-        # Scan APIs di semua target
-        api_results = {}
-        with ThreadPoolExecutor(max_workers=5) as executor:
-            futures = {executor.submit(self.scan_apis, url): url for url in all_targets}
+        all_results = {}
+        
+        try:
+            # Step 1: Find subdomains
+            subdomains = self.find_subdomains(base_domain)
+            target_urls = [domain] + subdomains
             
-            for future in as_completed(futures):
-                url = futures[future]
-                try:
-                    apis = future.result()
-                    if apis:
-                        api_results[url] = apis
-                except Exception as e:
-                    print(f"Error processing {url}: {str(e)}")
+            # Step 2: Scan APIs on each found URL
+            for url in target_urls:
+                apis = self.scan_apis_on_url(url)
+                if apis:
+                    all_results[url] = apis
+            
+            return all_results
+            
+        except KeyboardInterrupt:
+            self.scanning_active = False
+            print("\n🛑 Scan dibatalkan oleh pengguna")
+            return {}
         
-        return api_results
+        except Exception as e:
+            print(f"\n❌ Error: {str(e)}")
+            return {}
 
 def unified_scan(domain):
     scanner = UnifiedScanner()
