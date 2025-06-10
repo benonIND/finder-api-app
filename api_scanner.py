@@ -2,7 +2,7 @@ import requests
 import re
 import os
 import time
-import sys
+import sys, socket
 from urllib.parse import urlparse, urljoin
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from bs4 import BeautifulSoup
@@ -61,17 +61,24 @@ class UnifiedScanner:
         self.last_request_time = time.time()
 
     def scan_subdomain(self, base_domain, subdomain):
-        """Scan single subdomain"""
-        if not self.scanning_active:
-            return None
-            
+        """Scan single subdomain dengan error handling"""
         url = f"https://{subdomain}.{base_domain}"
-        self.animate_loading(url)
         
         try:
+            # Cek DNS resolution terlebih dahulu
+            socket.gethostbyname(f"{subdomain}.{base_domain}")
+        except socket.gaierror:
+            self.animate_loading(f"DNS tidak ditemukan: {url}", "error")
+            return None
+        except Exception as e:
+            self.animate_loading(f"Error DNS: {url} ({str(e)})", "error")
+            return None
+
+        try:
             self.check_request_delay()
+            
             response = self.session.head(
-                url, 
+                url,
                 timeout=5,
                 allow_redirects=True,
                 verify=False
@@ -83,21 +90,35 @@ class UnifiedScanner:
             else:
                 self.animate_loading(url, "not_found")
                 return None
-                
+
+        except requests.exceptions.SSLError:
+            self.animate_loading(f"SSL Error: {url}", "error")
+            return None
+        except requests.exceptions.ConnectionError as e:
+            if isinstance(e.args[0], MaxRetryError):
+                self.animate_loading(f"Tidak bisa terkoneksi: {url}", "error")
+            else:
+                self.animate_loading(f"Connection Error: {url}", "error")
+            return None
+        except requests.exceptions.Timeout:
+            self.animate_loading(f"Timeout: {url}", "error")
+            return None
         except Exception as e:
-            self.animate_loading(f"{url} ({str(e)})", "error")
+            self.animate_loading(f"Error: {url} ({str(e)})", "error")
             return None
 
     def scan_api_endpoint(self, base_url, api_path):
-        """Scan single API endpoint"""
-        if not self.scanning_active:
-            return None
-            
+        """Scan API endpoint dengan error handling"""
         full_url = urljoin(base_url, api_path)
-        self.animate_loading(full_url)
         
         try:
+            # Cek validitas URL
+            parsed = urlparse(full_url)
+            if not parsed.netloc:
+                return None
+
             self.check_request_delay()
+            
             response = self.session.head(
                 full_url,
                 timeout=5,
@@ -111,9 +132,18 @@ class UnifiedScanner:
             else:
                 self.animate_loading(full_url, "not_found")
                 return None
-                
+
+        except requests.exceptions.SSLError:
+            self.animate_loading(full_url, "error")
+            return None
+        except requests.exceptions.ConnectionError:
+            self.animate_loading(f"Connection Error: {full_url}", "error")
+            return None
+        except requests.exceptions.Timeout:
+            self.animate_loading(f"Timeout: {full_url}", "error")
+            return None
         except Exception as e:
-            self.animate_loading(f"{full_url} ({str(e)})", "error")
+            self.animate_loading(f"Error: {full_url} ({str(e)})", "error")
             return None
 
     def find_subdomains(self, base_domain):
