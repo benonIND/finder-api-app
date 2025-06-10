@@ -29,27 +29,27 @@ def main_menu():
         print("="*50 + "\n")
         
     elif choice == '2':
-    domain_input = input("Masukkan URL website atau domain: ")
-    print("\n" + "="*50)
-    print("Memulai pemindaian API... Ini mungkin membutuhkan waktu beberapa detik")
+        domain_input = input("Masukkan URL website atau domain: ")
+        print("\n" + "="*50)
+        print("Memulai pemindaian API... Ini mungkin membutuhkan waktu beberapa detik")
     
-    try:
-        results = api_scanner.find_api_endpoints(domain_input)
-        print("\nHasil Pemindaian API:")
-        if len(results) == 1 and results[0].startswith(("Tidak ditemukan", "Error")):
-            print(results[0])
-        else:
-            for i, api in enumerate(results, 1):
-                print(f"{i}. {api}")
+        try:
+            results = api_scanner.find_api_endpoints(domain_input)
+            print("\nHasil Pemindaian API:")
+            if len(results) == 1 and results[0].startswith(("Tidak ditemukan", "Error")):
+                print(results[0])
+            else:
+                for i, api in enumerate(results, 1):
+                     print(f"{i}. {api}")
         
-        print("\nTips:")
-        print("- Endpoint dengan domain utama biasanya lebih relevan")
-        print("- Coba endpoint dengan tools seperti Postman atau curl")
-        print("- Periksa dokumentasi API jika tersedia")
-    except Exception as e:
-        print(f"Error: {str(e)}")
+                     print("\nTips:")
+                     print("- Endpoint dengan domain utama biasanya lebih relevan")
+                     print("- Coba endpoint dengan tools seperti Postman atau curl")
+                     print("- Periksa dokumentasi API jika tersedia")
+        except Exception as e:
+            print(f"Error: {str(e)}")
     
-    print("="*50 + "\n")
+        print("="*50 + "\n")
         
     elif choice == '3':
         print("Terima kasih telah menggunakan tool ini!")
