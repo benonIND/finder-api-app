@@ -2,6 +2,7 @@ import banner, web_scraper, api_scanner
 import time
 
 def main_menu():
+    os.system("clear")
     banner.show_banner()
     print("Pilih Fitur:")
     print("1. Cari Website dari Aplikasi Android")
