@@ -6,32 +6,24 @@ from urllib.parse import urlparse, urljoin
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from bs4 import BeautifulSoup
 
-class APIScanner:
+class UnifiedScanner:
     def __init__(self):
-        self.common_patterns = self.load_common_patterns()
+        self.api_patterns = self.load_patterns('list_api.txt')
+        self.subdomain_patterns = self.load_patterns('list_subdomain.txt')
         self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        })
-        self.request_delay = 1  # Jeda 1 detik antar request
+        self.session.headers.update({'User-Agent': 'Mozilla/5.0'})
+        self.request_delay = 1
         self.last_request_time = 0
-    
-    def load_common_patterns(self):
-        patterns = []
-        if os.path.exists('list.txt'):
-            with open('list.txt', 'r') as f:
-                patterns.extend([line.strip() for line in f if line.strip()])
-        return patterns or [
-            '/api/v1/', '/api/v2/', '/graphql', '/rest/', 
-            '/json/', '/oauth/', '/auth/', '/users/'
-        ]
-    
-    def animate_loading(self, frame):
-        animation = ["⡿", "⣟", "⣯", "⣷", "⣾", "⣽", "⣻", "⢿"]
-        print(f"\r{animation[frame % len(animation)]} Scanning...", end="", flush=True)
-    
+        self.found_apis = []
+        self.found_subdomains = []
+
+    def load_patterns(self, filename):
+        if os.path.exists(filename):
+            with open(filename, 'r') as f:
+                return [line.strip() for line in f if line.strip() and not line.startswith('#')]
+        return []
+
     def make_request(self, url):
-        # Jeda antara request
         time_since_last = time.time() - self.last_request_time
         if time_since_last < self.request_delay:
             time.sleep(self.request_delay - time_since_last)
@@ -40,105 +32,91 @@ class APIScanner:
         try:
             response = self.session.head(url, timeout=5, allow_redirects=True)
             return (url, response.status_code < 400)
-        except Exception as e:
-            return (url, False)
-    
-    def find_api_endpoints(self, domain, max_results=15):
-        if not domain.startswith(('http://', 'https://')):
-            domain = 'https://' + domain
-        
-        try:
-            parsed_domain = urlparse(domain)
-            base_url = f"{parsed_domain.scheme}://{parsed_domain.netloc}"
-            
-            print(f"\n🔍 Memulai scanning pada: {base_url}")
-            print("📋 Menggunakan pattern dari list.txt\n")
-            
-            # Scan halaman utama
-            print("🌐 Scanning halaman utama...")
-            main_page = self.session.get(domain, timeout=10).text
-            main_page_apis = self.deep_scan(main_page, base_url)
-            
-            # Scan link terkait
-            print("\n🔗 Mengumpulkan link terkait...")
-            all_links = self.extract_links(main_page, base_url)
-            link_apis = set()
-            
-            # Batasi jumlah thread untuk menghindari blocking
-            with ThreadPoolExecutor(max_workers=3) as executor:
-                futures = []
-                for link in list(all_links)[:10]:  # Batasi jumlah link yang discan
-                    futures.append(executor.submit(self.scan_page, link))
-                
-                for i, future in enumerate(as_completed(futures), 1):
-                    try:
-                        apis = future.result()
-                        link_apis.update(apis)
-                        print(f"\r📡 Progress: {i}/{len(futures)} link discan", end="")
-                    except:
-                        continue
-            
-            # Gabungkan semua hasil
-            all_apis = main_page_apis.union(link_apis)
-            
-            # Verifikasi endpoint
-            print("\n\n🔎 Memverifikasi endpoint API:")
-            verified_apis = []
-            
-            with ThreadPoolExecutor(max_workers=3) as executor:
-                futures = [executor.submit(self.make_request, api) for api in all_apis]
-                for i, future in enumerate(as_completed(futures), 1):
-                    url, is_valid = future.result()
-                    status = "✅ Found" if is_valid else "❌ Not Found"
-                    print(f"{status}: {url}")
-                    if is_valid:
-                        verified_apis.append(url)
-                    if len(verified_apis) >= max_results:
-                        break
-            
-            return verified_apis[:max_results] if verified_apis else ["Tidak ditemukan API endpoint yang valid"]
-            
-        except Exception as e:
-            return [f"Error: {str(e)}"]
-    
-    def scan_page(self, url):
-        try:
-            response = self.session.get(url, timeout=8)
-            return self.deep_scan(response.text, url)
         except:
-            return set()
-    
-    def extract_links(self, html, base_url):
-        soup = BeautifulSoup(html, 'html.parser')
-        links = set()
-        
-        for tag in soup.find_all(['a', 'link', 'script', 'img', 'form'], href=True):
-            links.add(urljoin(base_url, tag['href']))
-        
-        for tag in soup.find_all(['script', 'img', 'iframe'], src=True):
-            links.add(urljoin(base_url, tag['src']))
-        
-        return links
-    
+            return (url, False)
+
+    def scan_subdomain(self, base_domain, subdomain):
+        url = f"https://{subdomain}.{base_domain}"
+        try:
+            response = self.session.head(url, timeout=5)
+            if response.status_code < 400:
+                self.found_subdomains.append(url)
+                return url
+        except:
+            pass
+        return None
+
+    def scan_apis_on_url(self, url):
+        try:
+            response = self.session.get(url, timeout=10)
+            found_apis = self.deep_scan(response.text, url)
+            
+            verified_apis = []
+            for api in found_apis:
+                api_url, is_valid = self.make_request(api)
+                if is_valid:
+                    verified_apis.append(api_url)
+            
+            return verified_apis
+        except:
+            return []
+
     def deep_scan(self, text, base_url):
         found = set()
-        for pattern in self.common_patterns:
+        for pattern in self.api_patterns:
             matches = re.finditer(re.escape(pattern), text)
             for match in matches:
                 full_url = self.build_full_url(match.group(), base_url)
                 if full_url:
                     found.add(full_url)
         return found
-    
+
     def build_full_url(self, path, base_url):
         if not path or path.startswith(('javascript:', 'mailto:', 'tel:')):
             return None
-        
-        if path.startswith(('http://', 'https://')):
-            return path
-        
         return urljoin(base_url, path)
 
-def find_api_endpoints(domain, max_results=15):
-    scanner = APIScanner()
-    return scanner.find_api_endpoints(domain, max_results)
+    def unified_scan(self, domain):
+        if not domain.startswith(('http://', 'https://')):
+            domain = 'https://' + domain
+
+        parsed = urlparse(domain)
+        base_domain = parsed.netloc
+        if ':' in base_domain:  # Remove port if exists
+            base_domain = base_domain.split(':')[0]
+
+        print(f"\n🔍 Memulai Unified Scan pada: {base_domain}")
+        print("="*60)
+        
+        # Step 1: Scan subdomains
+        print("\n🔗 Mencari subdomain aktif...")
+        with ThreadPoolExecutor(max_workers=20) as executor:
+            futures = []
+            for sub in self.subdomain_patterns[:100]:  # Batasi 100 subdomain untuk demo
+                futures.append(executor.submit(self.scan_subdomain, base_domain, sub))
+            
+            for future in as_completed(futures):
+                future.result()  # Hasil disimpan di self.found_subdomains
+
+        # Step 2: Scan APIs on each found domain
+        print("\n🔎 Memindai API endpoints:")
+        all_domains = [domain] + self.found_subdomains
+        api_results = {}
+        
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {executor.submit(self.scan_apis_on_url, url): url for url in all_domains}
+            
+            for future in as_completed(futures):
+                url = futures[future]
+                try:
+                    apis = future.result()
+                    if apis:
+                        api_results[url] = apis
+                except:
+                    continue
+
+        return api_results
+
+def unified_scan(domain):
+    scanner = UnifiedScanner()
+    return scanner.unified_scan(domain)
