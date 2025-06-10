@@ -42,10 +42,10 @@ def main_menu():
                 for i, api in enumerate(results, 1):
                      print(f"{i}. {api}")
         
-                     print("\nTips:")
-                     print("- Endpoint dengan domain utama biasanya lebih relevan")
-                     print("- Coba endpoint dengan tools seperti Postman atau curl")
-                     print("- Periksa dokumentasi API jika tersedia")
+            print("\nTips:")
+            print("- Endpoint dengan domain utama biasanya lebih relevan")
+            print("- Coba endpoint dengan tools seperti Postman atau curl")
+            print("- Periksa dokumentasi API jika tersedia")
         except Exception as e:
             print(f"Error: {str(e)}")
     
