@@ -2,9 +2,13 @@ import requests
 import re
 import os
 import time
+import urllib3
 from urllib.parse import urlparse, urljoin
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from bs4 import BeautifulSoup
+
+# Nonaktifkan peringatan SSL untuk testing
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 class UnifiedScanner:
     def __init__(self):
@@ -21,6 +25,9 @@ class UnifiedScanner:
         })
         self.request_delay = 0.5
         self.last_request_time = 0
+        
+        # SSL Configuration
+        self.session.verify = False  # Nonaktifkan verifikasi untuk testing
 
     def load_patterns(self, filename):
         try:
@@ -31,7 +38,6 @@ class UnifiedScanner:
             return None
 
     def make_request(self, url):
-        # Jeda antar request
         time_since_last = time.time() - self.last_request_time
         if time_since_last < self.request_delay:
             time.sleep(self.request_delay - time_since_last)
@@ -42,10 +48,14 @@ class UnifiedScanner:
                 url, 
                 timeout=3, 
                 allow_redirects=True,
-                verify=False  # Untuk testing saja
+                verify=False  # Nonaktifkan verifikasi SSL
             )
             return (url, response.status_code < 400)
+        except requests.exceptions.SSLError:
+            print(f"  [!] SSL Error pada {url}")
+            return (url, False)
         except Exception as e:
+            print(f"  [!] Error pada {url}: {str(e)}")
             return (url, False)
 
     def get_base_domain(self, url):
